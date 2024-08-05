@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  ModelRegion:
+    Type: String
+    Description: The region where the model is deployed
+    Default: us-east-1
+  ModelId:
+    Type: String
+    Description: The ID of the model to use for inference
+    Default: anthropic.claude-3-sonnet-20240229-v1:0
+  OutputControl:
+    Type: String
+    Description: Whether to intentionally specify output of model
+    AllowedValues:
+      - "True"
+      - "False"
+    Default: "False"
+  GuardrailVersion:
+    Type: String
+    Description: The version of the guardrail to use
+    Default: 1
+
+Resources:
+  Guardrail:
+    Type: AWS::Bedrock::Guardrail
+    Properties:
+      Name: !Sub ${AWS::StackName}-sample-guardrail
+      BlockedInputMessaging: request blocked
+      BlockedOutputsMessaging: response blocked
+      ContextualGroundingPolicyConfig:
+        FiltersConfig:
+          - Type: GROUNDING
+            Threshold: 0.85
+          - Type: RELEVANCE
+            Threshold: 0.85
+
+  ApplyGrFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-apply-gr-function-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+
+  ApplyGrFunctionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${AWS::StackName}-apply-gr-function-policy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: bedrock:InvokeModel
+            Resource: !Sub "arn:aws:bedrock:*::foundation-model/${ModelId}"
+          - Effect: Allow
+            Action: bedrock:RetrieveAndGenerate
+            Resource: "*"
+          - Effect: Allow
+            Action: bedrock:ApplyGuardrail
+            Resource: !GetAtt Guardrail.GuardrailArn
+      Roles:
+        - !Ref ApplyGrFunctionRole
+
+  ApplyGrFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-apply-gr-function
+      Role: !GetAtt ApplyGrFunctionRole.Arn
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Timeout: 60
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+      Environment:
+        Variables:
+          MODEL_ID: !Ref ModelId
+          MODEL_REGION: !Ref ModelRegion
+          OUTPUT_CONTROL: !Ref OutputControl
+          GUARDRAIL_ID: !GetAtt Guardrail.GuardrailId
+          GUARDRAIL_VERSION: !Ref GuardrailVersion
+      CodeUri: function
+      Layers:
+        - !Ref FunctionLayer
+
+  SetupGrVer:
+    Type: 'Custom::SetupGrVer'
+    Properties:
+      ServiceToken: !GetAtt CreateGrVerFunction.Arn
+    DependsOn:
+      - Guardrail
+
+  CreateGrVerFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-create-grver-function-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  CreateGrVerFunctionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${AWS::StackName}-create-grver-function-policy"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - bedrock:CreateGuardrailVersion
+            Resource: !GetAtt Guardrail.GuardrailArn
+      Roles:
+        - !Ref CreateGrVerFunctionRole
+
+  CreateGrVerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-create-grver-function'
+      Handler: index.lambda_handler
+      Role: !GetAtt CreateGrVerFunctionRole.Arn
+      Runtime: python3.12
+      Timeout: 600
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+        SystemLogLevel: INFO
+      Environment:
+        Variables:
+          GUARDRAIL_ID: !GetAtt Guardrail.GuardrailId
+      Layers:
+        - !Ref FunctionLayer
+      CodeUri: custom_resource/
+
+  FunctionLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${AWS::StackName}-apply-gr-layer
+      CompatibleRuntimes:
+        - python3.12
+      ContentUri: layer/
+    Metadata:
+      BuildMethod: python3.12
