@@ -6,7 +6,7 @@ use_container = false
 
 [default.deploy.parameters]
 debug = false
-stack_name = "bedrock-gr-apply"
+stack_name = "sam-bedrock-gr-hallucination"
 resolve_s3 = true
 region = "us-east-1"
 confirm_changeset = true
@@ -15,6 +15,6 @@ disable_rollback = false
 parameter_overrides = [
   "ModelRegion=us-east-1",
   "ModelId=anthropic.claude-3-sonnet-20240229-v1:0",
-  "OutputControl=True",
+  "OutputControl=False",
   "GuardrailVersion=1"
 ]

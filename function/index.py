@@ -20,6 +20,9 @@ def lambda_handler(event: Dict[Any, Any], context: Any) -> Any:
     with open("src/query.txt", "rt") as file:
         query = file.read()
 
+    with open("src/document.pdf", "rb") as file:
+        bs64 = file.read()
+
     logger.info(f"Query: {query}")
 
     gr_content = []
@@ -32,9 +35,6 @@ def lambda_handler(event: Dict[Any, Any], context: Any) -> Any:
         service_name="bedrock-agent-runtime",
         region_name=model_region,
     )
-
-    with open("src/document.pdf", "rb") as file:
-        bs64 = file.read()
 
     response = bar.retrieve_and_generate(
         input={"text": query},
