@@ -33,3 +33,5 @@ sam deploy
 ```
 
 ## 参考文献
+
+[Guardrails for Amazon Bedrockのハルシネーション検出\(contextual grounding check\)を試してみた \| DevelopersIO](https://dev.classmethod.jp/articles/guardrails-for-amazon-bedrock-contextual-grounding-check/)
